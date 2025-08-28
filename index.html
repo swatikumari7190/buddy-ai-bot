@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buddy AI Pico</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.3/dist/tailwind.min.css" rel="stylesheet">
+<style>
+  body { background: linear-gradient(135deg, #e0f7fa, #c8e6c9); font-family: 'Inter', sans-serif; }
+  #chatbox { scroll-behavior: smooth; }
+  .message { max-width: 75%; padding: 12px 16px; border-radius: 16px; margin: 4px 0; display: flex; align-items: flex-start; animation: slideFade 0.4s ease-out; }
+  .message.bot { background: linear-gradient(to right, #90caf9, #64b5f6); color: #1e3a8a; align-self: flex-start; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+  .message.user { background: linear-gradient(to right, #a5d6a7, #81c784); color: #1b5e20; align-self: flex-end; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+  @keyframes slideFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  #messageInput { border-radius: 9999px; padding: 12px 16px; outline: none; border: 1px solid #ccc; transition: 0.3s; }
+  #messageInput:focus { border-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.3); }
+  #sendButton { border-radius: 9999px; padding: 12px 20px; transition: all 0.2s; }
+  #sendButton:hover { transform: scale(1.05); box-shadow: 0 0 15px rgba(59,130,246,0.4); }
+</style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+<div class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+  <div class="bg-gradient-to-r from-blue-500 to-purple-500 p-4 text-center text-xl font-bold text-white">
+    Buddy AI 🤖
+  </div>
+
+  <div id="chatbox" class="p-4 flex flex-col space-y-3 h-96 overflow-y-auto bg-gray-50"></div>
+
+  <div class="flex p-4 border-t border-gray-200">
+    <input id="messageInput" type="text" placeholder="Type your message..." class="flex-grow mr-2">
+    <button id="sendButton" class="bg-blue-500 text-white font-bold">Send</button>
+  </div>
+</div>
+
+<script>
+const chatbox = document.getElementById("chatbox");
+const messageInput = document.getElementById("messageInput");
+const sendButton = document.getElementById("sendButton");
+const chatId = crypto.randomUUID();
+let receiving = false;
+
+// Keep last 3 messages only for speed
+const conversationHistory = [];
+
+const systemPrompt = `You are Buddy AI, a highly intelligent and friendly virtual assistant. Answer every question clearly and politely, providing detailed explanations with friendly emotions (like 😃, 🤖, ❤️) where appropriate. You can respond in a mix of Hindi and English (Hinglish) naturally. Be patient, supportive, and human-like in your responses. Adapt to the user's needs, give step-by-step guidance, use examples when helpful, and make learning, problem-solving, or exploring information easy and engaging. Keep a friendly and approachable tone, and respond thoughtfully to every message, like a knowledgeable human tutor or assistant.`;
+
+// Create message
+function createMessageElement(text, alignment){
+  const container = document.createElement("div");
+  container.className = `message ${alignment}`;
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = alignment === "left" ? "🤖" : "🧑";
+  container.appendChild(avatar);
+  const content = document.createElement("div");
+  content.textContent = text;
+  container.appendChild(content);
+  return container;
+}
+
+// Scroll
+function scrollToBottom(){ chatbox.scrollTop = chatbox.scrollHeight; }
+
+// Connect to Pico WebSocket
+function connectWebSocket(message){
+  receiving = true;
+  const botMsgElement = createMessageElement("", "left");
+  chatbox.appendChild(botMsgElement);
+  scrollToBottom();
+
+  conversationHistory.push({role:"user", content:message});
+  if(conversationHistory.length>3) conversationHistory.shift();
+
+  // ⚠ Replace with your Pico WebSocket URL
+  const PICO_WS_URL = "YOUR_PICO_WS_URL_HERE"; // Example: wss://backend.buildpicoapps.com/api/chatbot/ws?appId=YOUR_APP_ID
+
+  const ws = new WebSocket(PICO_WS_URL);
+  ws.addEventListener("open",()=>{
+    ws.send(JSON.stringify({
+      chatId: chatId,
+      systemPrompt: systemPrompt,
+      messages: conversationHistory
+    }));
+  });
+
+  // Streaming partial messages
+  let partial = "";
+  ws.onmessage = (event)=>{
+    partial += event.data;
+    botMsgElement.querySelector("div:last-child").textContent = partial;
+    scrollToBottom();
+  };
+
+  ws.onclose = (event)=>{
+    receiving=false;
+    if(event.code!==1000){
+      botMsgElement.querySelector("div:last-child").textContent+=" Error connecting. Check Pico URL.";
+      scrollToBottom();
+    } else {
+      conversationHistory.push({role:"assistant", content:partial});
+      if(conversationHistory.length>3) conversationHistory.shift();
+    }
+  };
+}
+
+// Send message
+function sendMessage(){
+  if(messageInput.value.trim()==="" || receiving) return;
+  const userMessage = messageInput.value.trim();
+  messageInput.value="";
+  const userMsgElement = createMessageElement(userMessage, "user");
+  chatbox.appendChild(userMsgElement);
+  scrollToBottom();
+  connectWebSocket(userMessage);
+}
+
+sendButton.addEventListener("click", sendMessage);
+messageInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter"){ e.preventDefault(); sendMessage(); } });
+
+// Initial greeting
+window.addEventListener("load", ()=>{
+  const greeting = createMessageElement("Hello! I’m Buddy AI 🤖😃, your friendly assistant. Kaise ho? How can I help you today?", "left");
+  chatbox.appendChild(greeting);
+  scrollToBottom();
+});
+</script>
+</body>
+</html>
